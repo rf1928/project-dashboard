@@ -2,7 +2,7 @@
 
 A cross-project status overview built on the markdown you already keep. One
 Python file, one HTML template, three well-known dependencies. No database,
-no build step, no cloud, no account. Binds to `127.0.0.1` only.
+no build step, no cloud, no account. Purely local. Binds to `127.0.0.1` only.
 
 ---
 
