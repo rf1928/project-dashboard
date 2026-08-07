@@ -11,7 +11,7 @@ no build step, no cloud, no account. Purely local. Binds to `127.0.0.1` only.
 **macOS — easiest:** double-click **`launch_dashboard.command`** in Finder. On first run it
 builds a virtual environment in `_dashboard/.venv`, installs the dependencies
 into it, and starts the dashboard. Every later run reuses it and starts
-immediately. (If Finder refuses to open it, run `chmod +x run.command` once.)
+immediately. (If Finder refuses to open it, run `chmod +x launch_dashboard.command` once.)
 
 **macOS — terminal:**
 
