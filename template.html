@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClaudeProjects — Status</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1d21; --muted: #6b7280; --line: #e3e6ea;
+    --accent: #2f6feb; --radius: 10px;
+    /* status palette — red is reserved for overdue, never for a status */
+    --todo: #1f62b8;    --todo-bg: #e6f1fb;
+    --active: #a86e12;  --active-bg: #fbf1dc;
+    --waiting: #5b4fc0; --waiting-bg: #eeedfe;
+    --blocked: #475569; --blocked-bg: #e9edf2;
+    --done: #2f7d47;    --done-bg: #eaf6ef;
+    --overdue: #d03b3b;
+
+    /* Bar fills use the median of each status's text colour and its pill background.
+       A <select> has no CSS gradient — the shading you see is native widget chrome —
+       so this midpoint is what the control reads as overall. Light: --active-mid ≈ #d2b077.
+       Derived with color-mix, so the dark palette below produces its own midpoints. */
+    --todo-mid:    color-mix(in srgb, var(--todo) 50%,    var(--todo-bg));
+    --active-mid:  color-mix(in srgb, var(--active) 50%,  var(--active-bg));
+    --waiting-mid: color-mix(in srgb, var(--waiting) 50%, var(--waiting-bg));
+    --blocked-mid: color-mix(in srgb, var(--blocked) 50%, var(--blocked-bg));
+    --done-mid:    color-mix(in srgb, var(--done) 50%,    var(--done-bg));
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c; --panel: #1e2126; --ink: #e8eaed; --muted: #9aa1ab; --line: #2e333a;
+      --todo: #7fb3f0;    --todo-bg: #16304d;
+      --active: #e0ae55;  --active-bg: #3a3122;
+      --waiting: #a79bf0; --waiting-bg: #2b2752;
+      --blocked: #a9b6c6; --blocked-bg: #2b3340;
+      --done: #6fc38b;    --done-bg: #1f3328;
+      --overdue: #f08a8a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 24px 20px 72px; }
+  header.top { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  h1 { font-size: 21px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.ro { background: var(--active-bg); color: var(--active); border-color: transparent; }
+  .golive { font-size: 12px; color: var(--accent); text-decoration: none; margin-left: 8px;
+            border: 1px solid var(--line); border-radius: 99px; padding: 2px 10px; white-space: nowrap; }
+  .golive:hover { border-color: var(--accent); background: var(--todo-bg); }
+  .golive .hintmark { color: var(--muted); font-size: 11px; margin-left: 4px; }
+
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 24px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; min-width: 104px; }
+  .stat .n { font-size: 24px; font-weight: 640; letter-spacing: -0.02em; }
+  .stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 2px; }
+  .stat.todo .n { color: var(--todo); }
+  .stat.active .n { color: var(--active); }
+  .stat.waiting .n { color: var(--waiting); }
+  .stat.blocked .n { color: var(--blocked); }
+  .stat.done .n { color: var(--done); }
+  .stat.overdue .n { color: var(--overdue); }
+
+  /* ---- attention strip ---- */
+  .attn { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+          border-radius: var(--radius); padding: 14px 16px; margin: 0 0 26px; }
+  .attn h2 { font-size: 14px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .attn .why { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .attn table { border: none; background: none; }
+  .attn td { padding: 7px 10px 7px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  .attn tr:last-child td { border-bottom: none; }
+  .attn .where { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .attn .none { font-size: 13px; color: var(--muted); }
+
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 22px; }
+  input[type=search], select, textarea, input[type=date] {
+    font: inherit; color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+  input[type=search] { min-width: 260px; }
+  .chip { font-size: 13px; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line);
+          background: var(--panel); cursor: pointer; color: var(--muted); }
+  /* unpressed: each filter wears its own status tint, matching the status field on a row */
+  .chip[data-f="blocked"] { background: var(--blocked-bg); color: var(--blocked); border-color: transparent; }
+  .chip[data-f="todo"]    { background: var(--todo-bg);    color: var(--todo);    border-color: transparent; }
+  .chip[data-f="active"]  { background: var(--active-bg);  color: var(--active);  border-color: transparent; }
+  .chip[data-f="waiting"] { background: var(--waiting-bg); color: var(--waiting); border-color: transparent; }
+  .chip[data-f="done"]    { background: var(--done-bg);    color: var(--done);    border-color: transparent; }
+  .chip:hover { filter: brightness(0.97); }
+  /* pressed still wins visually — solid accent overrides every tint above */
+  .chip[aria-pressed="true"],
+  .chip[data-f][aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .spacer { flex: 1; }
+  button.act { font: inherit; cursor: pointer; background: var(--panel); color: var(--ink);
+               border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; }
+  button.act:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---- project block ---- */
+  .project { margin-bottom: 30px; }
+  .phead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+  .phead h2 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
+  .phead .pmeta { font-size: 12px; color: var(--muted); }
+  .pbar { display: flex; height: 6px; width: 180px; border-radius: 99px; overflow: hidden; background: var(--line); }
+  .pbar i { display: block; }
+  .pbar .seg-blocked { background: var(--blocked-mid); }
+  .pbar .seg-todo    { background: var(--todo-mid); }
+  .pbar .seg-active  { background: var(--active-mid); }
+  .pbar .seg-waiting { background: var(--waiting-mid); }
+  .pbar .seg-done    { background: var(--done-mid); }
+  .pcount { font-size: 12px; color: var(--muted); display: flex; gap: 10px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel);
+          border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--muted); font-weight: 600; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 14px; }
+  tr:last-child td { border-bottom: none; }
+  tr.isdone td { opacity: .55; }
+  td.st { width: 138px; } td.due { width: 132px; white-space: nowrap; }
+  td.bo { color: var(--muted); font-size: 13px; }
+  .title { font-weight: 560; }
+  .idpill { display: inline-block; min-width: 20px; text-align: center; font-size: 11px; color: var(--muted);
+            border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; margin-right: 7px; }
+
+  /* ---- section header row ---- */
+  tr.sec td { background: var(--bg); border-bottom: 1px solid var(--line); padding: 8px 12px; }
+  .seclabel { font-size: 12px; font-weight: 620; letter-spacing: .01em; }
+  .secfile { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .secpill { font-size: 11px; padding: 2px 9px; border-radius: 99px; margin-left: 2px; }
+  .secrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .secpill.todo, select.status.todo, .ropill.todo { background: var(--todo-bg); color: var(--todo); }
+  .secpill.active, select.status.active, .ropill.active { background: var(--active-bg); color: var(--active); }
+  .secpill.waiting, select.status.waiting, .ropill.waiting { background: var(--waiting-bg); color: var(--waiting); }
+  .secpill.blocked, select.status.blocked, .ropill.blocked { background: var(--blocked-bg); color: var(--blocked); }
+  .secpill.done, select.status.done, .ropill.done { background: var(--done-bg); color: var(--done); }
+
+  select.status { width: 100%; border-radius: 99px; font-size: 13px; padding: 5px 9px; border: 1px solid transparent; }
+  .ropill { font-size: 12px; padding: 3px 10px; border-radius: 99px; }
+  .overdue { color: var(--overdue); font-weight: 600; }
+  .soon { color: var(--active); }
+
+  /* ---- priority ---- */
+  td.pri { width: 62px; }
+  select.prio { width: 100%; font-size: 13px; padding: 4px 6px; border-radius: 7px; text-align: center; }
+  .pbadge { display: inline-block; min-width: 22px; text-align: center; font-size: 12px; font-weight: 620;
+            padding: 2px 7px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); }
+  .pbadge.p1 { background: var(--overdue); color: #fff; border-color: transparent; }
+  .pbadge.p2 { background: var(--active-bg); color: var(--active); border-color: transparent; }
+  .pbadge.unset { color: var(--muted); opacity: .5; }
+  .notebtn { background: none; border: none; cursor: pointer; color: var(--muted); font: inherit;
+             font-size: 12px; padding: 2px 0; text-decoration: underline; text-underline-offset: 3px; }
+  .notebtn:hover { color: var(--accent); }
+  /* same 74px as tr.subtasks td — see the note there for where the number comes from */
+  tr.notes td { background: var(--bg); padding-left: 74px; }
+  /* Shared by the notes and sub-task rows: the vertical rail that ties an expanded
+     block to the parent row above it. Elbow stubs hang off it from each li. */
+  .subtree { border-left: 2px solid var(--line); padding-left: 14px; }
+  .noteslist { margin: 0 0 10px; padding: 0; list-style: none; }
+  /* Date on its own line, note text beneath it — a long note wraps against the rail
+     instead of hanging off a tall column beside the date. */
+  .noteslist li { font-size: 13px; padding: 5px 0; border-bottom: 1px dashed var(--line);
+                  display: flex; flex-direction: column; gap: 2px; position: relative; }
+  .noteslist .nhead { display: flex; align-items: baseline; gap: 8px; }
+  .noteslist time { color: var(--muted); white-space: nowrap; font-size: 12px; }
+  .noteslist .ntext { display: block; }
+  .noteslist .x { margin-left: auto; cursor: pointer; color: var(--muted); border: none; background: none; }
+  textarea { width: 100%; min-height: 62px; resize: vertical; }
+
+  /* ---- sub-tasks ---- */
+  .subpill { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 6px; margin-left: 6px;
+             border-radius: 99px; border: 1px solid var(--line); color: var(--muted); vertical-align: middle; }
+  .subpill.allDone { background: var(--active-bg); color: var(--active); border-color: transparent; }
+
+  /* progress bar + chip button */
+  .subwrap { display: flex; align-items: center; gap: 9px; margin: 7px 0 2px; }
+  /* same median amber as the In-Progress segment of the project bar */
+  .subbar { flex: 1; height: 6px; max-width: 260px; border-radius: 99px; background: var(--line); overflow: hidden; }
+  .subbar > i { display: block; height: 100%; border-radius: 99px; background: var(--active-mid);
+                transition: width .25s ease; }
+  .subcount { font-size: 11px; font-weight: 640; color: var(--muted); white-space: nowrap;
+              font-variant-numeric: tabular-nums; }
+  .subchip { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 12px;
+             padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line);
+             background: var(--panel); color: var(--ink); cursor: pointer; }
+  .subchip:hover { border-color: var(--accent); color: var(--accent); }
+  .subchip.allDone { background: var(--done-bg); color: var(--done); border-color: transparent; }
+  .subchip .caret { font-size: 9px; color: var(--muted); transition: transform .15s ease; }
+  .subchip[aria-expanded="true"] .caret { transform: rotate(90deg); }
+  .subchip[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+  /* NB: must not be named plain `empty` — the standalone .empty utility (padding: 34px)
+     is declared later and would win the specificity tie, inflating the chip. */
+  .subchip.isEmpty { color: var(--muted); border-style: dashed; }
+  /* This cell is colspan=6, so it starts at column 1 — but the Item column's text edge
+     (where .idpill, the wrapped title lines and .subchip all begin) is 62px of .pri
+     column plus the Item cell's own 12px padding. Match that so the rail lines up. */
+  tr.subtasks td { background: var(--bg); padding-left: 74px; }
+  .sublist { margin: 0 0 10px; padding: 0; list-style: none; }
+  .sublist li { font-size: 13px; padding: 5px 0; border-bottom: 1px dashed var(--line);
+                display: flex; gap: 8px; align-items: flex-start; position: relative; }
+  /* Elbow stub reaching left to meet the .subtree rail. Absolutely positioned so it
+     never becomes a flex item, and measured from the top so it stays on the first
+     line when the text wraps. 12.5px ≈ half the 13px line-box height. */
+  .sublist li::before,
+  .noteslist li::before { content: ""; position: absolute; left: -14px; top: 12.5px;
+                        width: 12px; height: 2px; background: var(--line); }
+  /* the notes header line is 12px, so its centre sits a touch higher than a sub-task's */
+  .noteslist li::before { top: 12px; }
+  .sublist input[type=checkbox] { margin: 2px 0 0; cursor: pointer; flex: none; }
+  .sublist li.done span.txt { text-decoration: line-through; color: var(--muted); }
+  .sublist .x { margin-left: auto; cursor: pointer; color: var(--muted); border: none; background: none; }
+  /* box-sizing: border-box is set globally, so 100% stays inside the rail's padding */
+  .subadd { width: 100%; }
+
+  .missing { background: var(--panel); border: 1px dashed var(--line); border-radius: var(--radius);
+             padding: 18px 20px; color: var(--muted); font-size: 14px; }
+  .missing strong { color: var(--ink); font-size: 16px; display: block; margin-bottom: 4px; font-weight: 560; }
+  .hint { font-size: 12px; margin-top: 6px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+         background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  .empty { text-align: center; color: var(--muted); padding: 34px; }
+  footer { margin-top: 26px; font-size: 12px; color: var(--muted); }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+           background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 8px;
+           font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>ClaudeProjects</h1>
+    <span class="sub" id="generated"></span>
+    <span id="modeBadge"></span>
+  </header>
+
+  <div class="stats" id="stats"></div>
+  <div id="attention"></div>
+
+  <div class="controls">
+    <input type="search" id="q" placeholder="Search items, actions, blockers…">
+    <button class="chip" data-f="blocked" aria-pressed="false">⚫ Blocked</button>
+    <button class="chip" data-f="todo" aria-pressed="false">🔵 To do</button>
+    <button class="chip" data-f="active" aria-pressed="false">🟡 In progress</button>
+    <button class="chip" data-f="waiting" aria-pressed="false">🟣 Waiting</button>
+    <button class="chip" data-f="done" aria-pressed="false">🟢 Done</button>
+    <select id="projFilter"><option value="">All projects</option></select>
+    <span class="spacer"></span>
+    <button class="act" id="refresh">Refresh</button>
+  </div>
+
+  <div id="projects"></div>
+  <div class="empty" id="empty" hidden>Nothing matches those filters.</div>
+
+  <footer id="foot"></footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const MODE = "__MODE__";
+const LIVE = MODE === "live";
+const LIVE_URL = "http://127.0.0.1:__PORT__/";
+let STATE = "__DATA__";
+
+const ORDER = ["blocked", "todo", "active", "waiting", "done"];
+const EMOJI = { todo: "🔵", active: "🟡", waiting: "🟣", blocked: "⚫", done: "🟢" };
+const LABEL = { todo: "To do", active: "In progress", waiting: "Waiting", blocked: "Blocked", done: "Done" };
+const RANK  = { blocked: 0, todo: 1, active: 2, waiting: 3, done: 4 };
+const ATTENTION_MAX_P = 2;
+const store = { filters: new Set(), q: "", proj: "", open: new Set(), opensub: new Set() };
+
+try {
+  const s = JSON.parse(localStorage.getItem("cp-dash") || "{}");
+  if (s.filters) store.filters = new Set(s.filters);
+  if (s.proj) store.proj = s.proj;
+} catch (e) {}
+function savePrefs() {
+  try { localStorage.setItem("cp-dash", JSON.stringify({ filters: [...store.filters], proj: store.proj })); }
+  catch (e) {}
+}
+
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function md(s) {
+  return esc(s).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+               .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
+               .replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+function toast(m) {
+  const t = document.getElementById("toast");
+  t.textContent = m; t.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 1900);
+}
+function dueInfo(due) {
+  if (!due) return { txt: "", cls: "" };
+  const d = new Date(due + "T00:00:00");
+  if (isNaN(d)) return { txt: esc(due), cls: "" };
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((d - today) / 86400000);
+  const txt = d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  if (days < 0) return { txt: txt + " · " + Math.abs(days) + "d over", cls: "overdue" };
+  if (days <= 7) return { txt: txt + " · " + days + "d", cls: "soon" };
+  return { txt, cls: "" };
+}
+function tally(items) {
+  const c = { todo: 0, active: 0, waiting: 0, blocked: 0, done: 0 };
+  items.forEach(i => c[i.status] = (c[i.status] || 0) + 1);
+  return c;
+}
+/* a group is blocked if anything in it is blocked; done only when all are */
+function rollup(items) {
+  if (!items.length) return "todo";
+  if (items.some(i => i.status === "blocked")) return "blocked";
+  if (items.every(i => i.status === "done")) return "done";
+  if (items.some(i => i.status === "active")) return "active";
+  if (items.some(i => i.status === "todo")) return "todo";
+  return "waiting";
+}
+function subProgress(i) {
+  const s = i.subtasks || [];
+  return { done: s.filter(x => x.done).length, total: s.length };
+}
+function subPill(i) {
+  const { done, total } = subProgress(i);
+  if (!total) return "";
+  return `<span class="subpill${done === total ? " allDone" : ""}">${done}/${total}</span>`;
+}
+function projItems(p) { return (p.sections || []).flatMap(s => s.items || []); }
+function matches(i) {
+  if (store.filters.size && !store.filters.has(i.status)) return false;
+  if (store.q) {
+    const q = store.q.toLowerCase();
+    if (![i.title, i.next, i.blocked_on].some(v => String(v || "").toLowerCase().includes(q))) return false;
+  }
+  return true;
+}
+
+function renderStats() {
+  const live = (STATE.projects || []).filter(p => !p.missing);
+  const items = live.flatMap(projItems);
+  const c = tally(items);
+  const overdue = items.filter(i => i.status !== "done" && dueInfo(i.due).cls === "overdue").length;
+  const miss = (STATE.projects || []).filter(p => p.missing).length;
+  document.getElementById("stats").innerHTML = `
+    <div class="stat"><div class="n">${live.length}</div><div class="l">Projects</div></div>
+    <div class="stat"><div class="n">${items.length}</div><div class="l">Items</div></div>
+    <div class="stat blocked"><div class="n">${c.blocked}</div><div class="l">Blocked</div></div>
+    <div class="stat todo"><div class="n">${c.todo}</div><div class="l">To do</div></div>
+    <div class="stat active"><div class="n">${c.active}</div><div class="l">In progress</div></div>
+    <div class="stat waiting"><div class="n">${c.waiting}</div><div class="l">Waiting</div></div>
+    <div class="stat done"><div class="n">${c.done}</div><div class="l">Done</div></div>
+    <div class="stat overdue"><div class="n">${overdue}</div><div class="l">Overdue</div></div>
+    ${miss ? `<div class="stat"><div class="n">${miss}</div><div class="l">No tracker</div></div>` : ""}`;
+}
+
+/* Cross-project attention strip: priority 1-2 only, not done. */
+function renderAttention() {
+  const rows = [];
+  (STATE.projects || []).forEach(p => {
+    if (p.missing) return;
+    (p.sections || []).forEach(sec => (sec.items || []).forEach(i => {
+      if (i.status === "done") return;
+      if (i.priority == null || i.priority > ATTENTION_MAX_P) return;
+      rows.push({ p, sec, i });
+    }));
+  });
+  rows.sort((a, b) =>
+    (a.i.priority - b.i.priority) ||
+    (RANK[a.i.status] - RANK[b.i.status]) ||
+    (a.i.due && b.i.due ? (a.i.due < b.i.due ? -1 : a.i.due > b.i.due ? 1 : 0) : a.i.due ? -1 : b.i.due ? 1 : 0));
+
+  const host = document.getElementById("attention");
+  if (!rows.length) {
+    host.innerHTML = `<div class="attn"><h2>Needs attention</h2>
+      <div class="none">No priority 1&ndash;2 items. Set a priority on an item to have it appear here.</div></div>`;
+    return;
+  }
+  host.innerHTML = `<div class="attn"><h2>Needs attention</h2>
+    <div class="why">Priority 1&ndash;2, across every project, not yet done.</div>
+    <table><tbody>${rows.map(({ p, sec, i }) => {
+      const d = dueInfo(i.due);
+      return `<tr>
+        <td style="width:34px"><span class="pbadge p${i.priority}">${i.priority}</span></td>
+        <td style="width:150px"><span class="ropill ${i.status}">${EMOJI[i.status]} ${LABEL[i.status]}</span></td>
+        <td><strong style="font-weight:560">${md(i.title)}</strong>${subPill(i)}
+            <div class="where">${esc(p.project)}${sec.label ? " › " + esc(sec.label) : ""}</div></td>
+        <td>${md(i.next)}</td>
+        <td class="where">${d.txt ? `<span class="${d.cls}">${d.txt}</span>` : ""}</td>
+      </tr>`;
+    }).join("")}</tbody></table></div>`;
+}
+
+function itemRow(p, sec, i) {
+  const k = [p.project, sec.key, i.id].join("||");
+  const d = dueInfo(i.due);
+  const n = (i.notes || []).length;
+  const st = LIVE
+    ? `<select class="status ${i.status}" data-k="${esc(k)}">` +
+      ORDER.map(s =>
+        `<option value="${s}"${s === i.status ? " selected" : ""}>${EMOJI[s]} ${LABEL[s]}</option>`).join("") + `</select>`
+    : `<span class="ropill ${i.status}">${EMOJI[i.status]} ${LABEL[i.status]}</span>`;
+  const pv = i.priority == null ? "" : String(i.priority);
+  const prio = LIVE
+    ? `<select class="prio" data-prio="${esc(k)}">` +
+      [["", "—"], ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"]].map(([v, l]) =>
+        `<option value="${v}"${v === pv ? " selected" : ""}>${l}</option>`).join("") + `</select>`
+    : (pv ? `<span class="pbadge p${pv}">${pv}</span>` : `<span class="pbadge unset">—</span>`);
+  const due = LIVE
+    ? `<input type="date" value="${esc(i.due || "")}" data-due="${esc(k)}" style="width:100%">
+       ${d.txt ? `<div class="${d.cls}" style="font-size:11px;margin-top:3px">${d.txt}</div>` : ""}`
+    : (d.txt ? `<span class="${d.cls}">${d.txt}</span>` : "—");
+  const sp = subProgress(i);
+  const open = store.opensub.has(k);
+  const allDone = sp.total > 0 && sp.done === sp.total;
+  const pct = sp.total ? Math.round((sp.done / sp.total) * 100) : 0;
+  // Finished checklists collapse to a tick; unfinished ones get a progress bar.
+  const bar = !sp.total || allDone ? "" :
+    `<div class="subbar"><i style="width:${pct}%"></i></div>
+     <span class="subcount">${sp.done}/${sp.total}</span>`;
+  const chip = `<button class="subchip${sp.total ? (allDone ? " allDone" : "") : " isEmpty"}" data-subs="${esc(k)}" aria-expanded="${open}">
+      <span class="caret">▶</span>${sp.total
+        ? (allDone ? `✓ ${sp.done}/${sp.total} sub-tasks` : `${sp.total} sub-tasks`)
+        : "add sub-task"}</button>`;
+  let html = `<tr class="${i.status === "done" ? "isdone" : ""}">
+    <td class="pri">${prio}</td>
+    <td><div class="title"><span class="idpill">${esc(i.id)}</span>${md(i.title)}</div>
+        <div class="subwrap">${chip}${bar}</div>
+        <button class="notebtn" data-notes="${esc(k)}">${n ? n + " note" + (n > 1 ? "s" : "") : "add note"}</button></td>
+    <td class="st">${st}</td>
+    <td>${md(i.next)}</td>
+    <td class="bo">${md(i.blocked_on) || "—"}</td>
+    <td class="due">${due}</td></tr>`;
+  if (store.opensub.has(k)) {
+    const list = (i.subtasks || []).map((x, idx) =>
+      `<li class="${x.done ? "done" : ""}">
+         <input type="checkbox" ${x.done ? "checked" : ""} ${LIVE ? "" : "disabled"}
+                data-sub="${esc(k)}" data-idx="${idx}">
+         <span class="txt">${md(x.text)}</span>${LIVE
+        ? `<button class="x" data-subdel="${esc(k)}" data-idx="${idx}" title="Delete sub-task">×</button>` : ""}</li>`).join("")
+      || `<li style="color:var(--muted)">No sub-tasks yet.</li>`;
+    html += `<tr class="subtasks"><td colspan="6">
+      <div class="subtree">
+        <ul class="sublist">${list}</ul>
+        ${LIVE ? `<input class="subadd" type="text" data-subnew="${esc(k)}" placeholder="Add a sub-task… (Enter to save)">` : ""}
+      </div>
+    </td></tr>`;
+  }
+  if (store.open.has(k)) {
+    const list = (i.notes || []).map((x, idx) =>
+      `<li><div class="nhead"><time>${esc(x.date)}</time>${LIVE
+        ? `<button class="x" data-del="${esc(k)}" data-idx="${idx}" title="Delete note">×</button>` : ""}</div>
+        <span class="ntext">${md(x.text)}</span></li>`).join("")
+      || `<li style="color:var(--muted)">No notes yet.</li>`;
+    html += `<tr class="notes"><td colspan="6">
+      <div class="subtree">
+        <ul class="noteslist">${list}</ul>
+        ${LIVE ? `<textarea data-note="${esc(k)}" placeholder="Add a note… (Ctrl/⌘+Enter to save)"></textarea>
+        <div style="margin-top:6px"><button class="act" data-save="${esc(k)}">Save note</button></div>` : ""}
+      </div>
+    </td></tr>`;
+  }
+  return html;
+}
+
+function renderProjects() {
+  const host = document.getElementById("projects");
+  let shown = 0;
+  host.innerHTML = (STATE.projects || []).map(p => {
+    if (store.proj && p.project !== store.proj) return "";
+
+    if (p.missing) {
+      shown++;
+      return `<div class="project"><div class="missing">
+        <strong>${esc(p.project)}</strong>${esc(p.message)}
+        <div class="hint">Add a <code>00-project-tracker.md</code> with YAML frontmatter to this folder to give it a status.
+        ${p.orphan_subs ? ` ${p.orphan_subs} sub-tracker file(s) were found but are ignored without a primary tracker.` : ""}</div>
+      </div></div>`;
+    }
+
+    const all = projItems(p);
+    const c = tally(all);
+    const n = all.length || 1;
+    const pct = k => (c[k] / n * 100).toFixed(1) + "%";
+
+    const body = (p.sections || []).map(sec => {
+      const vis = (sec.items || []).filter(matches)
+        .sort((a, b) =>
+          ((a.priority ?? 9) - (b.priority ?? 9)) ||
+          (RANK[a.status] - RANK[b.status]) || (a.id - b.id));
+      if (!vis.length) return "";
+      const rc = tally(sec.items);
+      const roll = rollup(sec.items);
+      const head = sec.label === null ? "" : `<tr class="sec"><td colspan="6"><div class="secrow">
+          <span class="seclabel">${esc(sec.label)}</span>
+          <span class="secpill ${roll}">${LABEL[roll]}</span>
+          <span class="secfile">${esc(sec.source)}</span>
+          <span style="color:var(--muted);font-size:11px">${rc.blocked} blocked · ${rc.todo} to do · ${rc.active} in progress · ${rc.waiting} waiting · ${rc.done} done</span>
+        </div></td></tr>`;
+      return head + vis.map(i => itemRow(p, sec, i)).join("");
+    }).join("");
+
+    if (!body) return "";
+    shown++;
+    return `<div class="project">
+      <div class="phead">
+        <h2>${esc(p.project)}</h2>
+        <span class="pmeta">${all.length} items${p.sections.length > 1 ? ` · ${p.sections.length - 1} sub-tracker${p.sections.length > 2 ? "s" : ""}` : ""}${p.updated ? ` · updated ${esc(p.updated)}` : ""}</span>
+        <span class="pbar">${ORDER.map(s => `<i class="seg-${s}" style="width:${pct(s)}"></i>`).join("")}</span>
+        <span class="pcount"><span>${c.blocked} blocked</span><span>${c.todo} to do</span><span>${c.active} in progress</span><span>${c.waiting} waiting</span><span>${c.done} done</span></span>
+      </div>
+      <table><thead><tr>
+        <th>P</th><th>Item</th><th>Status</th>
+        <th>Next action</th><th>Blocked on</th><th>Due</th>
+      </tr></thead><tbody>${body}</tbody></table>
+    </div>`;
+  }).join("");
+  document.getElementById("empty").hidden = shown > 0;
+}
+
+function render() {
+  document.getElementById("generated").textContent =
+    STATE.generated ? "as of " + STATE.generated.replace("T", " ") : "";
+  document.getElementById("modeBadge").innerHTML = LIVE
+    ? `<span class="badge">live · editable</span>`
+    : `<span class="badge ro">snapshot · read-only</span>` +
+      `<a class="golive" href="${LIVE_URL}" title="Opens the editable dashboard. Requires 'python dashboard.py' to be running.">Open live dashboard →</a>`;
+  const pf = document.getElementById("projFilter");
+  pf.innerHTML = `<option value="">All projects</option>` + (STATE.projects || []).map(p =>
+    `<option value="${esc(p.project)}"${p.project === store.proj ? " selected" : ""}>${esc(p.project)}</option>`).join("");
+  document.getElementById("q").value = store.q;
+  [...document.querySelectorAll(".chip")].forEach(c => c.setAttribute("aria-pressed", store.filters.has(c.dataset.f)));
+  renderStats(); renderAttention(); renderProjects();
+  document.getElementById("foot").textContent = LIVE
+    ? "Editing writes back to the tracker file the item came from. Your prose is never touched."
+    : "Static snapshot — run python dashboard.py to make changes.";
+}
+
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+async function reload() { STATE = await (await fetch("/api/state")).json(); render(); }
+const parseKey = k => { const [project, section, id] = k.split("||"); return { project, section, id }; };
+
+document.addEventListener("change", async e => {
+  const sel = e.target.closest("select.status");
+  if (sel && LIVE) {
+    try { await post("/api/item", Object.assign(parseKey(sel.dataset.k), { status: sel.value })); await reload(); toast("Status saved"); }
+    catch (err) { toast("Failed: " + err.message); } return;
+  }
+  const pr = e.target.closest("select.prio");
+  if (pr && LIVE) {
+    try { await post("/api/item", Object.assign(parseKey(pr.dataset.prio), { priority: pr.value === "" ? null : pr.value })); await reload(); toast("Priority saved"); }
+    catch (err) { toast("Failed: " + err.message); } return;
+  }
+  const due = e.target.closest("input[data-due]");
+  if (due && LIVE) {
+    try { await post("/api/item", Object.assign(parseKey(due.dataset.due), { due: due.value || null })); await reload(); toast("Due date saved"); }
+    catch (err) { toast("Failed: " + err.message); } return;
+  }
+  const sub = e.target.closest("input[data-sub]");
+  if (sub && LIVE) {
+    try {
+      await post("/api/subtask/set", Object.assign(parseKey(sub.dataset.sub),
+        { index: Number(sub.dataset.idx), done: sub.checked }));
+      await reload(); toast(sub.checked ? "Sub-task done" : "Sub-task reopened");
+    } catch (err) { toast("Failed: " + err.message); } return;
+  }
+  if (e.target.id === "projFilter") { store.proj = e.target.value; savePrefs(); render(); }
+});
+
+document.addEventListener("click", async e => {
+  const chip = e.target.closest(".chip");
+  if (chip) { const f = chip.dataset.f; store.filters.has(f) ? store.filters.delete(f) : store.filters.add(f); savePrefs(); render(); return; }
+  const nb = e.target.closest("[data-notes]");
+  if (nb) { const k = nb.dataset.notes; store.open.has(k) ? store.open.delete(k) : store.open.add(k); renderProjects(); return; }
+  const sb = e.target.closest("[data-subs]");
+  if (sb) { const k = sb.dataset.subs; store.opensub.has(k) ? store.opensub.delete(k) : store.opensub.add(k); renderProjects(); return; }
+  const sdel = e.target.closest("[data-subdel]");
+  if (sdel && LIVE) {
+    try { await post("/api/subtask/delete", Object.assign(parseKey(sdel.dataset.subdel), { index: Number(sdel.dataset.idx) })); await reload(); toast("Sub-task deleted"); }
+    catch (err) { toast("Failed: " + err.message); } return;
+  }
+  const save = e.target.closest("[data-save]");
+  if (save && LIVE) {
+    const k = save.dataset.save;
+    const ta = document.querySelector(`textarea[data-note="${CSS.escape(k)}"]`);
+    if (!ta || !ta.value.trim()) return;
+    try { await post("/api/note", Object.assign(parseKey(k), { text: ta.value })); await reload(); toast("Note saved"); }
+    catch (err) { toast("Failed: " + err.message); } return;
+  }
+  const del = e.target.closest("[data-del]");
+  if (del && LIVE) {
+    try { await post("/api/note/delete", Object.assign(parseKey(del.dataset.del), { index: Number(del.dataset.idx) })); await reload(); toast("Note deleted"); }
+    catch (err) { toast("Failed: " + err.message); } return;
+  }
+  if (e.target.id === "refresh") { LIVE ? reload().then(() => toast("Refreshed")) : location.reload(); }
+});
+
+document.addEventListener("keydown", async e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    const ta = e.target.closest("textarea[data-note]");
+    if (ta) document.querySelector(`[data-save="${CSS.escape(ta.dataset.note)}"]`)?.click();
+  }
+  if (e.key === "Enter" && LIVE) {
+    const inp = e.target.closest("input[data-subnew]");
+    if (inp && inp.value.trim()) {
+      e.preventDefault();
+      const k = inp.dataset.subnew;
+      store.opensub.add(k);
+      try { await post("/api/subtask", Object.assign(parseKey(k), { text: inp.value })); await reload(); toast("Sub-task added"); }
+      catch (err) { toast("Failed: " + err.message); }
+    }
+  }
+});
+document.getElementById("q").addEventListener("input", e => { store.q = e.target.value; renderProjects(); });
+
+if (LIVE) {
+  reload();
+  let known = null;
+  setInterval(async () => {
+    try {
+      const j = await (await fetch("/api/revision")).json();
+      if (known !== null && j.n !== known) { await reload(); toast("Updated from disk"); }
+      known = j.n;
+    } catch (e) {}
+  }, 4000);
+} else { render(); }
+</script>
+</body>
+</html>

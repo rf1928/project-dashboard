@@ -1,0 +1,10 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Editor/R leftovers
+.Rhistory
