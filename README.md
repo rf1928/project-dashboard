@@ -4,6 +4,10 @@ A cross-project status overview built on the markdown you already keep. One
 Python file, one HTML template, three well-known dependencies. No database,
 no build step, no cloud, no account. Purely local. Binds to `127.0.0.1` only.
 
+![The dashboard showing a single example project: summary tiles across the top, a
+"Needs attention" panel listing priority 1-2 items, and a table of items with
+status, next action, blockers, sub-task progress and due dates.](docs/screenshot-status.png)
+
 ---
 
 ## Run it
